@@ -49,13 +49,13 @@ data Cfg = Cfg Format Mut
 
 asType :: (Monad m, Foldable t)
        => (forall x. Data x => x -> t (Mutator m)) -> Format -> ByteString -> m ByteString
-asType ms = let encoding e d bs = mapMOf (prism' e d) (\v -> gamma (ms v) v) bs in \case
+asType ms = let encoding e d bs = mapMOf (prism' e d) (ms >>= gamma) bs in \case
   DERF -> encoding (encodeASN1 DER)     (preview _Right . decodeASN1 DER)
   JSON -> encoding (encode @Value)      decode
   XML  -> encoding (pack . showElement) (parseXMLDoc . unpack)
 
 mut :: (MonadIO m, Data x) => Mut -> (x -> [Mutator m])
-mut Knuth   = allTypes (Proxy @MonadIO) knuth
+mut Knuth   = allTypes knuth
 mut Radamsa = const [shellout "radamsa" $ Proxy @String]
 
 cfg :: ParserInfo Cfg

@@ -58,12 +58,10 @@ replace :: forall x m. (Data x, MonadIO m) => Proxy x -> Mutator m
 replace _ = Shuffler (pure . toListOf template)
                      (\x -> gets shuffle >>= fmap (maybe (x :: x) fst . uncons) . lift . extractR)
 
-allTypes :: forall c m x. (c m, Data x)
-         => Proxy c -> (forall a. (c m, Data a) => Proxy a -> Mutator m) -> x -> [Mutator m]
-allTypes p f x = go $ gmapQ (\(_ :: t) -> f $ Proxy @t) where
-  go :: (forall d. Data d => d -> [Mutator m]) -> [Mutator m]
-  go g = case g x of [] -> []
-                     l  -> l <> go (fold . gmapQ g)
+allTypes :: Data x => (forall a. Data a => Proxy a -> r) -> x -> [r]
+allTypes f x = go $ gmapQ (\(_ :: t) -> f $ Proxy @t) where
+  go :: (forall d. Data d => d -> [r]) -> [r]
+  go g = let l = g x in if null l then [] else l <> go (fold . gmapQ g)
 
 -- Real code finishes, test example below
 
