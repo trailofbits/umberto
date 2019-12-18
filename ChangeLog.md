@@ -1,3 +1,3 @@
-# Changelog for gamma
+# Changelog for umberto
 
 ## Unreleased changes
