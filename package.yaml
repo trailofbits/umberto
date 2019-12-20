@@ -43,7 +43,9 @@ executables:
       - asn1-encoding
       - asn1-types
       - bytestring
+      - constraints
       - containers
       - lens
       - optparse-applicative
+      - template-haskell
       - xml

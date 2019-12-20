@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Umberto where
 
@@ -36,6 +37,9 @@ mutate (Shuffler f g)  x = f x >>= evalStateT (template g x)
 
 gamma :: (Data s, Foldable t, Monad m) => t (Mutator m) -> s -> m s
 gamma = flip . foldlM $ flip mutate
+
+agmam :: (Data s, Foldable t, MonadIO m) => t (Mutator m) -> s -> m s
+agmam (toList -> x) s = extractR (shuffle x) >>= flip gamma s
 
 ePure :: (Applicative m, Typeable a) => (a -> a) -> Mutator m
 ePure = ElemMutator . fmap pure
