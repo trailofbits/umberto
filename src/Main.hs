@@ -1,13 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Main where
 
 import Umberto
 
-import Orphanage
+import Orphanage (allStrs, allNums)
 
 import Control.Lens hiding (argument)
 import Control.Monad.IO.Class (MonadIO)
@@ -15,23 +14,49 @@ import Data.Aeson (Value, decode, encode)
 import Data.ASN1.BinaryEncoding (DER(..))
 import Data.ASN1.Encoding (ASN1Decoding(..), ASN1Encoding(..))
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
-import Data.Data
+import Data.Data (Data, Proxy(..))
 import Options.Applicative
 import Text.XML.Light (parseXMLDoc, showElement)
 
 import qualified Data.ByteString.Lazy.Char8 as BS
 
-data Format = DERF | JSON | XML
+-- types
+-- {{{
 
-readFormat :: String -> Maybe Format
-readFormat = \case "der" -> Just DERF; "json" -> Just JSON; "xml" -> Just XML; _ -> Nothing
+data Format = DERF | JSON | XML
 
 data Mut = Knuth | Radamsa | Replace
 
-readMut :: String -> Maybe Mut
-readMut = \case "knuth" -> Just Knuth; "radamsa" -> Just Radamsa; "replace" -> Just Replace; _ -> Nothing
+data Target = Strings | Nums | All
 
-data Cfg = Cfg Format Mut
+data Cfg = Cfg Format Mut Target
+
+-- }}}
+-- cfg parsing
+-- {{{
+
+
+cfg :: ParserInfo Cfg
+cfg = let arg r m h = argument (maybeReader r) (metavar m <> help h) in flip info mempty $
+  Cfg <$> arg format "FORMAT"  "format to use"
+      <*> arg mut    "MUTATOR" "mutator to use"
+      <*> arg target "TARGET"  "types to target" where
+    format = \case "der"  -> Just DERF
+                   "json" -> Just JSON
+                   "xml"  -> Just XML
+                   _      -> Nothing
+    mut    = \case "knuth"   -> Just Knuth
+                   "radamsa" -> Just Radamsa
+                   "replace" -> Just Replace
+                   _         -> Nothing
+    target = \case "strings" -> Just Strings
+                   "nums"    -> Just Nums
+                   "all"     -> Just All
+                   _ -> Nothing
+
+-- }}}
+-- doing the mutation
+-- {{{
 
 asType :: (MonadIO m, Foldable t)
        => (forall x. Data x => x -> t (Mutator m)) -> Format -> ByteString -> m ByteString
@@ -40,15 +65,20 @@ asType ms = let encoding e d bs = mapMOf (prism' e d) (ms >>= agmam) bs in \case
   JSON -> encoding (encode @Value)      decode
   XML  -> encoding (pack . showElement) (parseXMLDoc . unpack)
 
-mut :: (MonadIO m, Data x) => Mut -> (x -> [Mutator m])
-mut Knuth   = allTypes knuth
-mut Radamsa = const [shellout "radamsa" $ Proxy @String]
-mut Replace = allTypes replace
+mut :: (MonadIO m, Data x) => Target -> Mut -> x -> [Mutator m]
+mut _ Radamsa = const [shellout "radamsa" $ Proxy @String]
+mut t m = let targetOf :: Data x => Target -> (forall a. Data a => Proxy a -> r) -> x -> [r]
+              targetOf = \case Strings -> allStrs
+                               Nums    -> allNums
+                               All     -> allTypes
+              mutOf :: (Data a, MonadIO m) => Mut -> Proxy a -> Mutator m
+              mutOf = \case Knuth -> knuth
+                            Replace -> replace
+                            Radamsa -> error "impossible" in
+          targetOf t $ mutOf m
 
-cfg :: ParserInfo Cfg
-cfg = flip info mempty $
-  Cfg <$> argument (maybeReader readFormat) (metavar "FORMAT"  <> help "format to use")
-      <*> argument (maybeReader readMut)    (metavar "MUTATOR" <> help "mutator to use")
+-- }}}
 
 main :: IO ()
-main = execParser cfg >>= \(Cfg f m) -> BS.getContents >>= asType (mut m) f . BS.init >>= BS.putStr
+-- get the cfg, read bytes from stdin, mutate as the format specified, put it back
+main = execParser cfg >>= \(Cfg f m t) -> BS.getContents >>= asType (mut t m) f . BS.init >>= BS.putStr

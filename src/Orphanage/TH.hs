@@ -12,25 +12,26 @@ import Language.Haskell.TH
 import Type.Reflection (someTypeRep)
 
 -- Is this type fully monomorphized?
-concretized :: Type -> Bool
-concretized (AppT f t)  = concretized f && concretized t
-concretized ConT{}      = True
-concretized ListT{}     = True
-concretized (ParensT x) = concretized x
-concretized (SigT t _)  = concretized t
-concretized TupleT{}    = True
-concretized _           = False
+mono :: Type -> Bool
+mono (AppT f t)  = mono f && mono t
+mono ConT{}      = True
+mono ListT{}     = True
+mono (ParensT x) = mono x
+mono (SigT t _)  = mono t
+mono TupleT{}    = True
+mono _           = False
 
+-- Get a dictionary of all the instances of some class, keyed by type representations. This will let
+-- us perform "DIY instance resolution" at runtime, implementing polymorphism monomorphically
 dictsFor :: Name -> Q Exp
 dictsFor n = reify n >>= \case
-  ClassI _ xs -> let
-    ts = mapMaybe (\case (InstanceD _ [] (AppT _ t@(concretized -> True)) _) -> Just t
-                         _                                                   -> Nothing) xs
+  -- If we get a class, we return a list of key value pairs as defined below
+  ClassI _ xs -> pure $ AppE (AppE (VarE 'zip) ks) vs where
     -- ts is all the concretized types instantiating n
-    ks = ListE $ AppE (VarE 'someTypeRep) . AppTypeE (ConE 'Proxy) <$> ts
+    ts = mapMaybe (\case (InstanceD _ [] (AppT _ t@(mono -> True)) _) -> Just t; _ -> Nothing) xs
     -- ks takes [Int, Float, Nat] ==> [someTypeRep $ Proxy @Int, someTypeRep $ Proxy @Float...]
-    vs = ListE $ AppE (VarE 'toDyn) . AppTypeE (ConE 'Dict) . AppT (ConT n) <$> ts in
+    ks = ListE $ AppE (VarE 'someTypeRep) . AppTypeE (ConE 'Proxy) <$> ts
     -- vs takes [Int, Float, Nat] ==> [toDyn $ Dict @(Num Int), toDyn $ Dict @(Num Float)...]
-      pure $ AppE (AppE (VarE 'zip) ks) vs
-      -- we return a list of type reps associated with a witness they instantiate our class
+    vs = ListE $ AppE (VarE 'toDyn) . AppTypeE (ConE 'Dict) . AppT (ConT n) <$> ts
+  -- If we don't get a class, this doesn't work
   _ -> fail $ show n ++ " is not a class name."
