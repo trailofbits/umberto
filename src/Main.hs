@@ -6,7 +6,7 @@ module Main where
 
 import Umberto
 
-import Orphanage (allStrs, allNums)
+import Orphanage ()
 
 import Control.Lens hiding (argument)
 import Control.Monad.IO.Class (MonadIO)
@@ -52,7 +52,7 @@ cfg = let arg r m h = argument (maybeReader r) (metavar m <> help h) in flip inf
     target = \case "strings" -> Just Strings
                    "nums"    -> Just Nums
                    "all"     -> Just All
-                   _ -> Nothing
+                   _         -> Nothing
 
 -- }}}
 -- doing the mutation
@@ -60,22 +60,22 @@ cfg = let arg r m h = argument (maybeReader r) (metavar m <> help h) in flip inf
 
 asType :: (MonadIO m, Foldable t)
        => (forall x. Data x => x -> t (Mutator m)) -> Format -> ByteString -> m ByteString
-asType ms = let encoding e d bs = mapMOf (prism' e d) (ms >>= agmam) bs in \case
+asType ms = let encoding e d = mapMOf (prism' e d) (ms >>= agmam) in \case
   DERF -> encoding (encodeASN1 DER)     (preview _Right . decodeASN1 DER)
   JSON -> encoding (encode @Value)      decode
   XML  -> encoding (pack . showElement) (parseXMLDoc . unpack)
 
 mut :: (MonadIO m, Data x) => Target -> Mut -> x -> [Mutator m]
 mut _ Radamsa = const [shellout "radamsa" $ Proxy @String]
-mut t m = let targetOf :: Data x => Target -> (forall a. Data a => Proxy a -> r) -> x -> [r]
-              targetOf = \case Strings -> allStrs
-                               Nums    -> allNums
-                               All     -> allTypes
-              mutOf :: (Data a, MonadIO m) => Mut -> Proxy a -> Mutator m
-              mutOf = \case Knuth -> knuth
-                            Replace -> replace
-                            Radamsa -> error "impossible" in
-          targetOf t $ mutOf m
+mut t m = targetOf t $ mutOf m where
+  targetOf :: Data x => Target -> (forall a. Data a => Proxy a -> r) -> x -> [r]
+  targetOf = \case Strings -> allStrs
+                   Nums    -> allNums
+                   All     -> allTypes
+  mutOf :: (Data a, MonadIO m) => Mut -> Proxy a -> Mutator m
+  mutOf = \case Knuth   -> knuth
+                Replace -> replace
+                Radamsa -> error "impossible"
 
 -- }}}
 

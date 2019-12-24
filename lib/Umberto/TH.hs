@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Orphanage.TH where
+module Umberto.TH where
 
 import Data.Constraint (Dict(..))
 import Data.Dynamic (toDyn)

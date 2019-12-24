@@ -1,31 +1,59 @@
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Umberto where
 
 import Control.Lens
-import Control.Monad
-import Control.Monad.Fix
-import Control.Monad.State
-import Control.Monad.Trans
-import Data.Foldable
-import Data.Typeable
-import Data.Data
-import Data.Data.Lens
-import Data.List (union)
-import Data.Maybe
-import Data.Proxy
-import Data.Random hiding (gamma)
-import System.Process
-import System.Random
+import Control.Monad.State (StateT, evalStateT, get, modify)
+import Control.Monad.IO.Class (MonadIO(..))
+import Data.Foldable (Foldable(..), foldlM)
+import Data.Constraint (Constraint, Dict(..), withDict)
+import Data.Data (Data, gmapQ)
+import Data.Data.Lens (template)
+import Data.Dynamic (Dynamic, fromDynamic, toDyn)
+import Data.Maybe (catMaybes, fromMaybe)
+import Data.Proxy (Proxy(..))
+import Data.Random (RVar, StdRandom(..), randomElement, runRVarT, shuffle)
+import GHC.Exts (IsString)
+import System.Process (readCreateProcess, shell)
+import System.Random (Random, randomIO)
 import Text.Read (readMaybe)
+import Type.Reflection (SomeTypeRep, Typeable, someTypeRep)
+
+import Umberto.TH
+
+-- utility
+-- {{{
+
+extractR :: MonadIO m => RVar x -> m x
+extractR = liftIO . flip runRVarT StdRandom
+
+ifC :: forall p0 p1 (c :: * -> Constraint) a r. (Data a, Typeable c)
+    => p0 c -> [(SomeTypeRep, Dynamic)] -> (forall x. (Data x, c x) => p1 x -> r) -> p1 a -> Maybe r
+-- Given a dictionary of known instances keyed by type representations, see if we can look up an
+-- instance for the type we're interested in. If we can, try to retrieve an instance that we can then
+-- use to apply our fn to that type, otherwise return nothing.
+ifC _ d f p = lookup (someTypeRep p) d >>= fmap (\c -> withDict c $ f p) . fromDynamic @(Dict (c a))
+
+ifNum :: forall proxy a r. Data a
+      => (forall x. (Data x, Num x) => proxy x -> r) -> proxy a -> Maybe r
+ifNum = ifC (Proxy @Num) $(dictsFor ''Num)
+
+ifStr :: forall proxy a r. Data a
+      => (forall x. (Data x, IsString x) => proxy x -> r) -> proxy a -> Maybe r
+ifStr = ifC (Proxy @IsString) $ $(dictsFor ''IsString)
+     -- `instance a ~ Char => IsString [a]` is not concrete by our heuristic, we need to witness the
+     -- String instance ourselves
+     <> [(someTypeRep $ Proxy @String, toDyn $ Dict @(IsString String))]
+
+-- }}}
+-- mutation
+-- {{{
 
 data Mutator m where
   ElemMutator :: Typeable a =>                                   (a -> m a)          -> Mutator m 
@@ -39,7 +67,11 @@ gamma :: (Data s, Foldable t, Monad m) => t (Mutator m) -> s -> m s
 gamma = flip . foldlM $ flip mutate
 
 agmam :: (Data s, Foldable t, MonadIO m) => t (Mutator m) -> s -> m s
-agmam (toList -> x) s = extractR (shuffle x) >>= flip gamma s
+agmam x s = extractR (shuffle $ toList x) >>= flip gamma s
+
+-- }}}
+-- mutators
+-- {{{
 
 ePure :: (Applicative m, Typeable a) => (a -> a) -> Mutator m
 ePure = ElemMutator . fmap pure
@@ -51,37 +83,24 @@ shellout :: forall m a. (MonadIO m, Read a, Show a, Typeable a) => String -> Pro
 shellout c _ = ElemMutator $ \x -> fromMaybe x . readMaybe <$>
   liftIO (readCreateProcess (shell c) $ show @a x)
 
-extractR :: MonadIO m => RVar x -> m x
-extractR = liftIO . flip runRVarT StdRandom
-
 knuth :: forall x m. (Data x, MonadIO m) => Proxy x -> Mutator m
-knuth _ = Shuffler (extractR . shuffle . toListOf template)
-                   (\x -> do x' <- maybe (x :: x) fst <$> preuse _Cons; modify $ drop 1; pure x')
+knuth _ = Shuffler (extractR . shuffle . toListOf template) $
+  \x -> do x' <- maybe (x :: x) fst <$> preuse _Cons; modify $ drop 1; pure x'
 
 replace :: forall x m. (Data x, MonadIO m) => Proxy x -> Mutator m
-replace _ = Shuffler (pure . toListOf template)
-                     (\x -> gets shuffle >>= fmap (maybe (x :: x) fst . uncons) . lift . extractR)
+replace _ = Shuffler (pure . toListOf template) $
+  \(x :: x) -> get >>= extractR . randomElement . (x :)
+
+-- }}}
+-- targeting
+-- {{{
 
 allTypes :: Data x => (forall a. Data a => Proxy a -> r) -> x -> [r]
 allTypes f x = go $ gmapQ (\(_ :: t) -> f $ Proxy @t) where
   go :: (forall d. Data d => d -> [r]) -> [r]
   go g = let l = g x in if null l then [] else l <> go (fold . gmapQ g)
 
--- Real code finishes, test example below
-
-{-
-data FakeAST where
-  IntLeaf :: Int                -> FakeAST
-  StrLeaf :: String             -> FakeAST
-  TwoLeaf :: FakeAST -> FakeAST -> FakeAST
-  deriving (Data, Show)
-
-testAST :: FakeAST
-testAST = TwoLeaf (IntLeaf 3) (TwoLeaf (IntLeaf 6) (StrLeaf "hello"))
-
-We run all our mutators on their appropriate targets, preserving structure exactly.
-Notably, mutators can have side effects/do IO just fine
-
-λ> gamma [intMut, strMut] testAST >>= print
-TwoLeaf (IntLeaf 6366215734448504952) (TwoLeaf (IntLeaf (-4688011920244202983)) (StrLeaf "olleh"))
--}
+-- allTypes, but specialized to Num and IsString
+allNums, allStrs :: Data x => (forall a. Data a => Proxy a -> r) -> x -> [r]
+allNums f = catMaybes . allTypes (ifNum f)
+allStrs f = catMaybes . allTypes (ifStr f)
