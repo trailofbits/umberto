@@ -3,7 +3,6 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Umberto where
@@ -11,21 +10,22 @@ module Umberto where
 import Control.Lens
 import Control.Monad.State (StateT, evalStateT, get, modify)
 import Control.Monad.IO.Class (MonadIO(..))
+import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Lens (packedChars)
 import Data.Foldable (Foldable(..), foldlM)
 import Data.Constraint (Constraint, Dict(..), withDict)
 import Data.Data (Data, gmapQ)
 import Data.Data.Lens (template)
-import Data.Dynamic (Dynamic, fromDynamic, toDyn)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Dynamic (Dynamic, fromDynamic)
+import Data.Maybe (catMaybes)
 import Data.Proxy (Proxy(..))
 import Data.Random (RVar, StdRandom(..), randomElement, runRVarT, shuffle)
-import GHC.Exts (IsString)
-import System.Process (readCreateProcess, shell)
-import System.Random (Random, randomIO)
-import Text.Read (readMaybe)
-import Type.Reflection (SomeTypeRep, Typeable, someTypeRep)
-
-import Umberto.TH
+import Data.String.ToString (ToString(..))
+import GHC.Exts (IsString(..))
+import System.Process.ByteString ()
+import System.Process.ListLike (readCreateProcessWithExitCode, shell)
+import Test.QuickCheck (Arbitrary(..), generate)
+import Type.Reflection (Typeable, SomeTypeRep, someTypeRep)
 
 -- utility
 -- {{{
@@ -40,16 +40,8 @@ ifC :: forall p0 p1 (c :: * -> Constraint) a r. (Data a, Typeable c)
 -- use to apply our fn to that type, otherwise return nothing.
 ifC _ d f p = lookup (someTypeRep p) d >>= fmap (\c -> withDict c $ f p) . fromDynamic @(Dict (c a))
 
-ifNum :: forall proxy a r. Data a
-      => (forall x. (Data x, Num x) => proxy x -> r) -> proxy a -> Maybe r
-ifNum = ifC (Proxy @Num) $(dictsFor ''Num)
-
-ifStr :: forall proxy a r. Data a
-      => (forall x. (Data x, IsString x) => proxy x -> r) -> proxy a -> Maybe r
-ifStr = ifC (Proxy @IsString) $ $(dictsFor ''IsString)
-     -- `instance a ~ Char => IsString [a]` is not concrete by our heuristic, we need to witness the
-     -- String instance ourselves
-     <> [(someTypeRep $ Proxy @String, toDyn $ Dict @(IsString String))]
+strung :: (IsString a, ToString a) => Iso' a String
+strung = iso toString fromString
 
 -- }}}
 -- mutation
@@ -76,20 +68,21 @@ agmam x s = extractR (shuffle $ toList x) >>= flip gamma s
 ePure :: (Applicative m, Typeable a) => (a -> a) -> Mutator m
 ePure = ElemMutator . fmap pure
 
-eRandom :: forall m a. (MonadIO m, Random a, Typeable a) => Proxy a -> Mutator m
-eRandom _ = ElemMutator . const . liftIO $ randomIO @a
-
-shellout :: forall m a. (MonadIO m, Read a, Show a, Typeable a) => String -> Proxy a -> Mutator m
-shellout c _ = ElemMutator $ \x -> fromMaybe x . readMaybe <$>
-  liftIO (readCreateProcess (shell c) $ show @a x)
+shellout :: forall m a. (MonadIO m, IsString a, ToString a, Typeable a)
+         => String -> Proxy a -> Mutator m
+shellout c _ = ElemMutator $ mapMOf (strung @a . packedChars @ByteString) command where
+  command = fmap (view _2) . liftIO . readCreateProcessWithExitCode (shell c)
 
 knuth :: forall x m. (Data x, MonadIO m) => Proxy x -> Mutator m
 knuth _ = Shuffler (extractR . shuffle . toListOf template) $
-  \x -> do x' <- maybe (x :: x) fst <$> preuse _Cons; modify $ drop 1; pure x'
+  \(x :: x) -> maybe x fst <$> preuse _Cons >>= \x' -> modify tail >> pure x'
 
-replace :: forall x m. (Data x, MonadIO m) => Proxy x -> Mutator m
-replace _ = Shuffler (pure . toListOf template) $
+replacement :: forall x m. (Data x, MonadIO m) => Proxy x -> Mutator m
+replacement _ = Shuffler (pure . toListOf template) $
   \(x :: x) -> get >>= extractR . randomElement . (x :)
+
+newVals :: forall x m. (Arbitrary x, Data x, MonadIO m) => Proxy x -> Mutator m
+newVals _ = ElemMutator . const . liftIO . generate $ arbitrary @x
 
 -- }}}
 -- targeting
@@ -100,7 +93,10 @@ allTypes f x = go $ gmapQ (\(_ :: t) -> f $ Proxy @t) where
   go :: (forall d. Data d => d -> [r]) -> [r]
   go g = let l = g x in if null l then [] else l <> go (fold . gmapQ g)
 
--- allTypes, but specialized to Num and IsString
-allNums, allStrs :: Data x => (forall a. Data a => Proxy a -> r) -> x -> [r]
-allNums f = catMaybes . allTypes (ifNum f)
-allStrs f = catMaybes . allTypes (ifStr f)
+-- :)
+outOf :: forall c x r p0 p1. Data x
+      => ((forall a. Data a => p1 a -> Maybe r) -> x -> [Maybe r])
+      -> (forall y. Data y => (forall a. (Data a, c a) => p1 a -> r) -> p1 y -> Maybe r)
+      -> (forall a. (Data a, c a) => p1 a -> r)
+      -> p0 c -> x -> [r]
+outOf a i f _ = catMaybes . a (i f)

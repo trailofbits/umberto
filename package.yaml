@@ -26,12 +26,19 @@ library:
   source-dirs: lib
   dependencies:
     - binary
+    - bytestring
+    - constraints
     - lens
     - mtl
     - process
+    - process-extras
+    - QuickCheck
+    - template-haskell
     - random
     - random-fu
     - tardis
+    - template-haskell
+    - tostring
 
 executables:
   umberto-mutate:
@@ -43,9 +50,8 @@ executables:
       - asn1-encoding
       - asn1-types
       - bytestring
-      - constraints
       - containers
       - lens
       - optparse-applicative
-      - template-haskell
+      - QuickCheck
       - xml
