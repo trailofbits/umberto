@@ -14,21 +14,23 @@ Umberto provides a simple executable, `umberto-mutate`, that wraps most of its f
 
 Here, `FORMAT` can be any of `json`, `string`, `xml`, or `der` (X.509 DER). XML and X.509 support is highly experimental at the moment, JSON and string support is fairly solid. `MUTATOR` can be `radamsa` (pipes strings to radamsa), `newvals` (synthesizes totally new values), `knuth` (knuth-shuffles values by type), or `replacement` (replacement-shuffles values by type). `TARGET` can be `nums` (targeting numeric values), `strings` (targeting string values), or `all` (targeting all values). This is probably far clearer by example.
 
-`echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate json knuth all`
+```
+echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate json knuth all
 
-`{"a":2,"c":"tesb","t":1}`
+    {"a":2,"c":"tesb","t":1}
 
-`echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate json newvals nums`
+echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate json newvals nums
 
-`{"a":-2.8e-20,"b":-40000,"c":"test"}`
+    {"a":-2.8e-20,"b":-40000,"c":"test"}
 
-`echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate json radamsa strings`
+echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate json radamsa strings
 
-`{"c\u0008^\u001f":"ó ¨teï»â¨¿st","1313131313131313â":1,"ô ó ó ¶Db":2}`
+    {"c\u0008^\u001f":"ó ¨teï»â¨¿st","1313131313131313â":1,"ô ó ó ¶Db":2}
 
-`echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate string knuth all`
+echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate string knuth all
 
-`b : {2e 1:" "a","s"","": ct}`
+    b : {2e 1:" "a","s"","": ct}
+```
 
 # Library Usage
 
