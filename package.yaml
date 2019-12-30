@@ -51,6 +51,7 @@ executables:
       - asn1-types
       - bytestring
       - containers
+      - constraints
       - lens
       - optparse-applicative
       - QuickCheck

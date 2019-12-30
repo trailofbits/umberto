@@ -1,5 +1,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -107,6 +108,7 @@ targetOf :: Data x => Target -> (forall a. Data a => Proxy a -> r) -> x -> [r]
 targetOf = \case Strings -> allStrs; Nums -> allNums; All -> allTypes
 
 mut :: (MonadIO m, Data x) => Target -> Mut -> x -> [Mutator m]
+mut Nums Radamsa = error "Radamsa fuzzer is not currently defined for numbers"
 mut _ Radamsa = const [shellout "radamsa" $ Proxy @String]
 mut t NewVals = Proxy @Arbitrary & outOf (targetOf t) ifArb newVals
 mut t (Shuffle s) = targetOf t $ mutOf s where
