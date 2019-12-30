@@ -8,6 +8,7 @@
 module Umberto where
 
 import Control.Lens
+import Control.Monad (liftM2)
 import Control.Monad.State (StateT, evalStateT, get, modify)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.ByteString.Char8 (ByteString)
@@ -17,6 +18,7 @@ import Data.Constraint (Constraint, Dict(..), withDict)
 import Data.Data (Data, gmapQ)
 import Data.Data.Lens (template)
 import Data.Dynamic (Dynamic, fromDynamic)
+import Data.List (nubBy)
 import Data.Maybe (catMaybes)
 import Data.Proxy (Proxy(..))
 import Data.Random (RVar, StdRandom(..), randomElement, runRVarT, shuffle)
@@ -88,9 +90,11 @@ newVals _ = ElemMutator . const . liftIO . generate $ arbitrary @x
 -- targeting
 -- {{{
 
-allTypes :: Data x => (forall a. Data a => Proxy a -> r) -> x -> [r]
-allTypes f x = go $ gmapQ (\(_ :: t) -> f $ Proxy @t) where
-  go :: (forall d. Data d => d -> [r]) -> [r]
+allTypes :: forall x r. Data x => (forall a. Data a => Proxy a -> r) -> x -> [r]
+allTypes f x = map fst . nubBy (\(_, s) (_, t) -> s == t) $ go ty where
+  ty :: forall d. Data d => d -> [(r, SomeTypeRep)]
+  ty = gmapQ $ \_ -> liftM2 (,) f someTypeRep $ Proxy @d
+  go :: (forall d. Data d => d -> [(r, t)]) -> [(r, t)]
   go g = let l = g x in if null l then [] else l <> go (fold . gmapQ g)
 
 -- :)
