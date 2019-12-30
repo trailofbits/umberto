@@ -27,6 +27,8 @@ jobs:
     - name: Build
       run: |
         set -ex
+        ls
+        pwd
         stack build --ghc-options=-Wall
         set +ex
       env:
