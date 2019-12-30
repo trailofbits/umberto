@@ -93,7 +93,7 @@ newVals _ = ElemMutator . const . liftIO . generate $ arbitrary @x
 allTypes :: forall x r. Data x => (forall a. Data a => Proxy a -> r) -> x -> [r]
 allTypes f x = map fst . nubBy (\(_, s) (_, t) -> s == t) $ go ty where
   ty :: forall d. Data d => d -> [(r, SomeTypeRep)]
-  ty = gmapQ $ \_ -> liftM2 (,) f someTypeRep $ Proxy @d
+  ty = gmapQ $ \(_ :: t) -> liftM2 (,) f someTypeRep $ Proxy @t
   go :: (forall d. Data d => d -> [(r, t)]) -> [(r, t)]
   go g = let l = g x in if null l then [] else l <> go (fold . gmapQ g)
 
