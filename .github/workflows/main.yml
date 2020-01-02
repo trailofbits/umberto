@@ -1,0 +1,38 @@
+# Haskell stack project Github Actions template
+# https://gist.github.com/mstksg/11f753d891cee5980326a8ea8c865233
+
+
+name: Umberto CI
+
+on:
+  push:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+        # use this to specify what resolvers and ghc to use
+        plan:
+        - { build: stack, resolver: "--resolver lts-9"  }    # ghc-8.0.2
+        - { build: stack, resolver: "--resolver lts-11"  }   # ghc-8.2.2
+        - { build: stack, resolver: "--resolver lts-12"  }   # ghc-8.4.4
+        - { build: stack, resolver: "--resolver lts-14"  }   # ghc-8.6.5
+        include: []
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Setup stack
+      uses: mstksg/setup-stack@v1
+
+    - name: Build
+      run: |
+        set -ex
+        ls
+        pwd
+        stack build --ghc-options=-Wall
+        set +ex
+      env:
+        ARGS: ${{ matrix.plan.resolver }}
+        BUILD: ${{ matrix.plan.build }}
