@@ -17,14 +17,11 @@ import Data.Aeson (Value, decode, encode)
 import Data.ASN1.BinaryEncoding (DER(..))
 import Data.ASN1.Encoding (ASN1Decoding(..), ASN1Encoding(..))
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
-import Data.Constraint (Dict(..))
 import Data.Data (Data, Proxy(..))
-import Data.Dynamic (toDyn)
 import GHC.Exts (IsString)
 import Options.Applicative
 import Test.QuickCheck (Arbitrary)
 import Text.XML.Light (parseXMLDoc, showElement)
-import Type.Reflection (someTypeRep)
 
 import qualified Data.ByteString.Lazy.Char8 as BS
 
@@ -75,15 +72,11 @@ ifNum = ifC (Proxy @Num) $(dictsFor ''Num)
 
 ifStr :: forall proxy a r. Data a
       => (forall x. (Data x, IsString x) => proxy x -> r) -> proxy a -> Maybe r
-ifStr = ifC (Proxy @IsString) $ $(dictsFor ''IsString)
-     -- `instance a ~ Char => IsString [a]` is not concrete by our heuristic, we need to witness the
-     -- String instance ourselves
-     <> [(someTypeRep $ Proxy @String, toDyn $ Dict @(IsString String))]
+ifStr = ifC (Proxy @IsString) $(dictsFor ''IsString)
 
 ifArb :: forall proxy a r. Data a
       => (forall x. (Data x, Arbitrary x) => proxy x -> r) -> proxy a -> Maybe r
-ifArb = ifC (Proxy @Arbitrary) $ $(dictsFor ''Arbitrary)
-     <> [(someTypeRep $ Proxy @String, toDyn $ Dict @(Arbitrary String))]
+ifArb = ifC (Proxy @Arbitrary) $(dictsFor ''Arbitrary)
 
 -- allTypes, but specialized to Num and IsString
 allNums :: forall x r. Data x => (forall a. (Data a, Num a) => Proxy a -> r) -> x -> [r]
