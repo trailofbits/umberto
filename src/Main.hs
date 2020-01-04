@@ -66,20 +66,17 @@ cfg = let arg r m h = argument (maybeReader r) (metavar m <> help h) in flip inf
 -- targeting
 -- {{{
 
-ifNum :: forall proxy a r. Data a
-      => (forall x. (Data x, Num x) => proxy x -> r) -> proxy a -> Maybe r
+ifNum :: Data a => (forall x. (Data x, Num x) => proxy x -> r) -> proxy a -> Maybe r
 ifNum = ifC (Proxy @Num) $(dictsFor ''Num)
 
-ifStr :: forall proxy a r. Data a
-      => (forall x. (Data x, IsString x) => proxy x -> r) -> proxy a -> Maybe r
+ifStr :: Data a => (forall x. (Data x, IsString x) => proxy x -> r) -> proxy a -> Maybe r
 ifStr = ifC (Proxy @IsString) $(dictsFor ''IsString)
 
-ifArb :: forall proxy a r. Data a
-      => (forall x. (Data x, Arbitrary x) => proxy x -> r) -> proxy a -> Maybe r
+ifArb :: Data a => (forall x. (Data x, Arbitrary x) => proxy x -> r) -> proxy a -> Maybe r
 ifArb = ifC (Proxy @Arbitrary) $(dictsFor ''Arbitrary)
 
 -- allTypes, but specialized to Num and IsString
-allNums :: forall x r. Data x => (forall a. (Data a, Num a) => Proxy a -> r) -> x -> [r]
+allNums :: Data x => (forall a. (Data a, Num a) => Proxy a -> r) -> x -> [r]
 allNums f = Proxy @Num & outOf allTypes ifNum f
 
 allStrs :: Data x => (forall a. (Data a, IsString a) => Proxy a -> r) -> x -> [r]
