@@ -126,6 +126,11 @@ ixedByIn n m = liftM2 (,) (reify n) (possible m) >>= \case
     xs = [ t | (InstanceD _ [] (AppT _ t@(mono -> True)) _) <- xs' ]
     -- We need a way to do local instance matching with types that might misbehave. Ergo this hack.
     reifyValid c = fmap concat . mapM (\t -> recover (pure []) $ reifyInstances c [t])
+    -- Heuristic for matching "up to the last free variable"
+    eqRoot (ConT c0)        (ConT c1)        = c0 == c1
+    eqRoot (AppT t0 VarT{}) (AppT t1 VarT{}) = eqRoot t0 t1
+    eqRoot (AppT t0 _)      (AppT t1 _)      = t0 == t1
+    eqRoot _           _                     = False
     -- Now let's get our relevant 'Index' instances. We wanna make sure there are also 'IxValue'
     -- instances to avoid weirdness later. We do two lookups + a pattern match to achieve this.
     getInsts = fmap concat . forM ts $ \t -> do
@@ -136,13 +141,9 @@ ixedByIn n m = liftM2 (,) (reify n) (possible m) >>= \case
       -- NOTE: TySynEqns don't include constraints, so we can treat free type variables as no-ctx
       let fins is = [ (l, r) | TySynInstD _ (TySynEqn [l] r) <- is ]
       pure [ (s, x) | (s, _) <- fins ixvs, (s', x) <- fins inds, eqRoot s s' ]
-    -- Is a type equal ignoring the rightmost term (T a b == T a c, T a b /= T c b)
-    eqRoot (ConT c0)   (ConT c1)   = c0 == c1
-    eqRoot (AppT t0 _) (AppT t1 _) = eqRoot t0 t1
-    eqRoot _           _           = False
     -- 'eqRoot', but it Restricts Right Type to be a ctype + returns it in a Maybe. Handy for search
     rrt l r | eqRoot l r && r `elem` ts = Just r
-    rrt _                  _            = Nothing
+    rrt _ _                             = Nothing
       in do -- OK now we're ready
       -- I kept doing this by mistake so I made an error message
       when (null ts) $ fail "No component types found, are you sure you used a type name?"
@@ -176,6 +177,6 @@ ixedByIn n m = liftM2 (,) (reify n) (possible m) >>= \case
            --
            -- This means we have 'instance Index T_0 a b = a'
            -- For all 'x', 'y' from ctypes such that 'Cl x', if 'T x y' is also a ctype, we take it
-        <> [ s | (s'@(fstFree -> Just x), _) <- is, t <- xs -- x is our first free var, t our sub
+        <> [ s | (s'@(fstFree -> Just x), VarT{}) <- is, t <- xs -- x: first free var, t: sub
                , Just s@(mono -> True) <- rrt (tmap (\ty -> if ty == x then t else ty) s') <$> ts ]
   _ -> fail $ show n ++ " is not a class name." -- lol
