@@ -1,6 +1,6 @@
 # Umberto
 
-Umberto is a library designed for mutating generic structured data (e.g., JSON, XML, X.509) and a command line application wrapping this functionality. It can apply a variety of mutations, synthesize totally new values, and apply existing mutators (e.g. [Radamsa](https://gitlab.com/akihe/radamsa) to structure components. If you're trying to perform grammar-based fuzzing, you might find it very useful. It's probably easiest to understand by example:
+Umberto is a library designed for mutating generic structured data (e.g., JSON, XML, X.509) and a command line application wrapping this functionality. It can apply a variety of mutations, synthesize totally new values, and apply existing mutators (e.g. [Radamsa](https://gitlab.com/akihe/radamsa)) to structure components. If you're trying to perform grammar-based fuzzing, you might find it very useful. It's probably easiest to understand by example:
 
 ```
 echo -n "{\"a\": 1, \"b\": 2, \"c\": \"test\"}" | umberto-mutate json knuth all
