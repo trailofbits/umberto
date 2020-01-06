@@ -16,12 +16,15 @@ import Control.Monad.IO.Class (MonadIO)
 import Data.Aeson (Value, decode, encode)
 import Data.ASN1.BinaryEncoding (DER(..))
 import Data.ASN1.Encoding (ASN1Decoding(..), ASN1Encoding(..))
+import Data.ASN1.Types (ASN1)
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
 import Data.Data (Data, Proxy(..))
 import GHC.Exts (IsString)
 import Options.Applicative
 import Test.QuickCheck (Arbitrary)
-import Text.XML.Light (parseXMLDoc, showElement)
+import Test.QuickCheck.Instances ()
+import Text.XML.Light (Element, parseXMLDoc, showElement)
+import Type.Reflection (SomeTypeRep)
 
 import qualified Data.ByteString.Lazy.Char8 as BS
 
@@ -34,7 +37,7 @@ data Shuf = Knuth | Replacement
 
 data Mut = Shuffle Shuf | Radamsa | NewVals
 
-data Target = Strings | Nums | All
+data Target = Strings | Nums | RHSStrs | All
 
 data Cfg = Cfg Format Mut Target
 
@@ -57,10 +60,11 @@ cfg = let arg r m h = argument (maybeReader r) (metavar m <> help h) in flip inf
                    "replacement" -> Just $ Shuffle Replacement
                    "newvals"     -> Just NewVals
                    _             -> Nothing
-    target = \case "strings" -> Just Strings
-                   "nums"    -> Just Nums
-                   "all"     -> Just All
-                   _         -> Nothing
+    target = \case "strings"     -> Just Strings
+                   "nums"        -> Just Nums
+                   "rhs-strings" -> Just RHSStrs
+                   "all"         -> Just All
+                   _             -> Nothing
 
 -- }}}
 -- targeting
@@ -82,6 +86,11 @@ allNums f = Proxy @Num & outOf allTypes ifNum f
 allStrs :: Data x => (forall a. (Data a, IsString a) => Proxy a -> r) -> x -> [r]
 allStrs f = Proxy @IsString & outOf allTypes ifStr f
 
+rhsstrs :: [(SomeTypeRep, SomeTypeRep)]
+rhsstrs = $(ixedByC ''IsString ''Value)
+       <> $(ixedByC ''IsString ''Element)
+       <> $(ixedByC ''IsString ''ASN1)
+
 -- }}}
 -- doing the mutation
 -- {{{
@@ -95,10 +104,11 @@ asType ms = let encoding e d = mapMOf (prism' e d) (ms >>= agmam) in \case
   XML  -> encoding (pack . showElement) (parseXMLDoc . unpack)
 
 targetOf :: Data x => Target -> (forall a. Data a => Proxy a -> r) -> x -> [r]
-targetOf = \case Strings -> allStrs; Nums -> allNums; All -> allTypes
+targetOf = \case Strings -> allStrs; Nums -> allNums; RHSStrs -> allStrs; All -> allTypes
 
 mut :: (MonadIO m, Data x) => Target -> Mut -> x -> [Mutator m]
 mut Nums Radamsa = error "Radamsa fuzzer is not currently defined for numbers"
+mut RHSStrs m = fmap (RHSMutator rhsstrs) . mut Strings m
 mut _ Radamsa = const [shellout "radamsa" $ Proxy @String]
 mut t NewVals = Proxy @Arbitrary & outOf (targetOf t) ifArb newVals
 mut t (Shuffle s) = targetOf t $ mutOf s where

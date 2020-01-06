@@ -4,6 +4,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Umberto where
 
@@ -15,7 +16,8 @@ import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Lens (packedChars)
 import Data.Foldable (Foldable(..), foldlM)
 import Data.Constraint (Constraint, Dict(..), withDict)
-import Data.Data (Data, gmapQ)
+import Data.Constraint.Deferrable (deferEither_)
+import Data.Data (Data(..), gmapQ)
 import Data.Data.Lens (template)
 import Data.Dynamic (Dynamic, fromDynamic)
 import Data.List (nubBy)
@@ -23,11 +25,11 @@ import Data.Maybe (catMaybes)
 import Data.Proxy (Proxy(..))
 import Data.Random (RVar, StdRandom(..), randomElement, runRVarT, shuffle)
 import Data.String.ToString (ToString(..))
-import GHC.Exts (IsString(..))
+import GHC.Exts (type (~~), IsString(..))
 import System.Process.ByteString ()
 import System.Process.ListLike (readCreateProcessWithExitCode, shell)
 import Test.QuickCheck (Arbitrary(..), generate)
-import Type.Reflection (Typeable, SomeTypeRep, someTypeRep)
+import Type.Reflection (SomeTypeRep(..), Typeable, TypeRep(..), someTypeRep, typeOf)
 
 -- utility
 -- {{{
@@ -51,11 +53,16 @@ strung = iso toString fromString
 
 data Mutator m where
   ElemMutator :: Typeable a =>                                   (a -> m a)          -> Mutator m 
+  RHSMutator  ::               [(SomeTypeRep, SomeTypeRep)]   -> Mutator m           -> Mutator m
   Shuffler    :: Typeable a => (forall x. Data x => x -> m s) -> (a -> StateT s m a) -> Mutator m
 
-mutate :: (Monad m, Data s) => Mutator m -> s -> m s
-mutate (ElemMutator f) x = template f x
-mutate (Shuffler f g)  x = f x >>= evalStateT (template g x)
+mutate :: forall m s. (Monad m, Data s) => Mutator m -> s -> m s
+mutate m x = (case m of RHSMutator l u -> go (templateBut l) u
+                        u              -> go template u) where
+  go :: (forall x y n. (Data x, Typeable y, Monad n) => (y -> n y) -> x -> n x) -> Mutator m -> m s
+  go t (ElemMutator f)  = t f x
+  go t (RHSMutator _ u) = go t u
+  go t (Shuffler f g)   = f x >>= evalStateT (t g x)
 
 gamma :: (Data s, Foldable t, Monad m) => t (Mutator m) -> s -> m s
 gamma = flip . foldlM $ flip mutate
@@ -63,6 +70,18 @@ gamma = flip . foldlM $ flip mutate
 agmam :: (Data s, Foldable t, MonadIO m) => t (Mutator m) -> s -> m s
 agmam x s = extractR (shuffle $ toList x) >>= flip gamma s
 
+templateBut :: forall a b m. (Typeable a, Data b, Applicative m)
+            => [(SomeTypeRep, SomeTypeRep)] -> (a -> m a) -> b -> m b
+templateBut l f = gfoldl go pure where
+  go :: forall x y. Data x => m (x -> y) -> x -> m y
+  go c x = case (lookup (someTypeRep $ Proxy @x) l, deferEither_ @(a ~~ x) $ f x) of
+    (Just t, _)  -> c <*> templateTil t f x
+    (_, Right r) -> c <*> r
+    (_, _) -> c <*> templateBut l f x
+  templateTil :: forall x. Data x => SomeTypeRep -> (a -> m a) -> x -> m x
+  templateTil t f x | someTypeRep (Proxy @x) == t = templateBut l f x
+  templateTil t f x = gfoldl (\c y -> c <*> templateTil t f y) pure x
+    
 -- }}}
 -- mutators
 -- {{{

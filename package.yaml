@@ -55,4 +55,5 @@ executables:
       - lens
       - optparse-applicative
       - QuickCheck
+      - quickcheck-instances
       - xml

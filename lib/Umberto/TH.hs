@@ -113,12 +113,12 @@ dictsFor n = reify n >>= \case
   -- If we don't get a class, this doesn't work
   _ -> fail $ show n ++ " is not a class name."
 
--- ixedBy is like 'dictsFor', but it also takes a type and finds 'IxValue's s.t. 'Index' satisfies
+-- ixedByC is like 'dictsFor', but it also takes a type and finds 'IxValue's s.t. 'Index' satisfies
 -- the constraint and the structure indexed can appear in terms of the type provided. This is a
 -- pretty nuts function; GHC is not a fan of us taking this strategy
-ixedByIn :: Name -> Name -> Q Exp
+ixedByC :: Name -> Name -> Q Exp
 -- First, we get the class info as before + possible component types (ctypes) for our target
-ixedByIn n m = liftM2 (,) (reify n) (possible m) >>= \case
+ixedByC n m = liftM2 (,) (reify n) (possible m) >>= \case
   -- We can do rudimentary substition + filter to just monomorphic ctypes for easy hacking
   (ClassI _ (map subst -> xs'), filter mono -> ts) -> let
     -- We only have monomorphic ctypes, so we only look for monomorphic instances
@@ -144,11 +144,14 @@ ixedByIn n m = liftM2 (,) (reify n) (possible m) >>= \case
     -- 'eqRoot', but it Restricts Right Type to be a ctype + returns it in a Maybe. Handy for search
     rrt l r | eqRoot l r && r `elem` ts = Just r
     rrt _ _                             = Nothing
+    -- Final typerep assembly
+    mkTRs i = TupE [mkTypeRep i, mkTypeRep $ AppT (ConT ''IxValue) i]
       in do -- OK now we're ready
       -- I kept doing this by mistake so I made an error message
-      when (null ts) $ fail "No component types found, are you sure you used a type name?"
+      when (null ts) . fail $ "No component types of " <> show m
+                           <> " found, are you sure it's a type?"
       -- We're gonna get instances, match them up with our ctype list, and then make typereps
-      getInsts <&> \is -> ListE $ fmap mkTypeRep . nub $
+      getInsts <&> \is -> ListE . fmap mkTRs . nub $
            -- So below, we basically implement a four-way case statement on each result of getInsts
            -- in list comprehensions. We call nub, so overlap is ok, and this makes heavy pattern
            -- usage much easier.
