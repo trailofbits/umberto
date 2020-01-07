@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -69,7 +68,7 @@ subst d@(InstanceD c (AppT (AppT (ConT f) lhs) rhs : ctx) t ds) | f == ''(~) = l
 subst d = d
 #endif
 
--- 'allTypes' but on TH names, intended for use on data types
+-- 'allTypes' from lib/Umberto.hs but on TH names, intended for use on data types
 possible :: Name -> Q [Type]
 possible = reify >=> fmap nub . getInfo [] where
   concatMapM f = fmap concat . mapM f
@@ -126,11 +125,15 @@ ixedByC n m = liftM2 (,) (reify n) (possible m) >>= \case
     xs = [ t | (InstanceD _ [] (AppT _ t@(mono -> True)) _) <- xs' ]
     -- We need a way to do local instance matching with types that might misbehave. Ergo this hack.
     reifyValid c = fmap concat . mapM (\t -> recover (pure []) $ reifyInstances c [t])
-    -- Heuristic for matching "up to the last free variable"
-    eqRoot (ConT c0)        (ConT c1)        = c0 == c1
-    eqRoot (AppT t0 VarT{}) (AppT t1 VarT{}) = eqRoot t0 t1
-    eqRoot (AppT t0 _)      (AppT t1 _)      = t0 == t1
-    eqRoot _           _                     = False
+    -- Match everything but variables
+    eqRoot (SigT _ x)      (SigT _ y)      = eqRoot x y
+    eqRoot (ParensT x)     (ParensT y)     = eqRoot x y
+    eqRoot (AppT f x)      (AppT g y)      = eqRoot f g && eqRoot x y
+    eqRoot (InfixT l _ r)  (InfixT i _ d)  = eqRoot l i && eqRoot r d
+    eqRoot (UInfixT l _ r) (UInfixT i _ d) = eqRoot l i && eqRoot r d
+    eqRoot VarT{}          _               = True
+    eqRoot _               VarT{}          = True
+    eqRoot t0              t1              = t0 == t1
     -- Now let's get our relevant 'Index' instances. We wanna make sure there are also 'IxValue'
     -- instances to avoid weirdness later. We do two lookups + a pattern match to achieve this.
     getInsts = fmap concat . forM ts $ \t -> do
@@ -144,7 +147,8 @@ ixedByC n m = liftM2 (,) (reify n) (possible m) >>= \case
     -- 'eqRoot', but it Restricts Right Type to be a ctype + returns it in a Maybe. Handy for search
     rrt l r | eqRoot l r && r `elem` ts = Just r
     rrt _ _                             = Nothing
-    -- Final typerep assembly
+    -- Final typerep assembly. Should be of the form [(Structure, Index)] for 'templateTil' to use
+    -- when traversing as stop/start markers
     mkTRs i = TupE [mkTypeRep i, mkTypeRep $ AppT (ConT ''IxValue) i]
       in do -- OK now we're ready
       -- I kept doing this by mistake so I made an error message
@@ -180,6 +184,6 @@ ixedByC n m = liftM2 (,) (reify n) (possible m) >>= \case
            --
            -- This means we have 'instance Index T_0 a b = a'
            -- For all 'x', 'y' from ctypes such that 'Cl x', if 'T x y' is also a ctype, we take it
-        <> [ s | (s'@(fstFree -> Just x), VarT{}) <- is, t <- xs -- x: first free var, t: sub
+        <> [ s | (s'@(fstFree -> Just x), VarT{}) <- is, t <- xs -- x: first free var, t: sub for ix
                , Just s@(mono -> True) <- rrt (tmap (\ty -> if ty == x then t else ty) s') <$> ts ]
   _ -> fail $ show n ++ " is not a class name." -- lol
